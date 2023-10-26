@@ -84,7 +84,7 @@ fun conjugateUpdateGaussianGaussian(
 // constant scale.
 fun sampleMarsagliaTsangGamma(rng: Random, alpha: Double) : Double {
   val dOptim = alpha - 1.0 / 3
-  val cOptim = 1.0 / 3 * sqrt(dOptim)
+  val cOptim = 1.0 / (3 * sqrt(dOptim))
   while (true) {
     val unitG = rng.nextGaussian()
     val oPcTx = 1 + cOptim * unitG
@@ -120,12 +120,6 @@ data class NormalGamma(
     val prec = stdGamma / this.beta  // beta is the rate, i.e., inverse scale
     val stddev = sqrt(1.0 / prec)
     val mean = sampleGaussian(rng, Gaussian(this.mean, stddev * 1.0/sqrt(this.pseudocount)))
-    if (stddev > 100) {
-      println("Sampling gaussian got")
-      println("stdGamma " + stdGamma)
-      println("prec " + prec)
-      println("stddev " + stddev)
-    }
     return Gaussian(mean, stddev)
   }
 }
@@ -338,6 +332,10 @@ fun synthesizeData(rng: Random, nclusters: Int, npoints: Int) : DoubleArray {
   val assignment = sampleAssignment(rng, npoints, nclusters)
   val positions = samplePositionsGivenAssignmentParameters(rng, assignment, params)
   println(positions.toList().max())
+  val mean = positions.sum() / positions.size
+  println("Data mean " + mean)
+  val discrep = positions.map { (it - mean) * (it - mean) }.sum()
+  println("Data discrepancy " + discrep)
   return positions
 }
 
@@ -360,11 +358,11 @@ fun fitGibbs(rng: Random, nclusters: Int, nsteps: Int, positions: DoubleArray)
 
 fun tryClustering() {
   val npoints = 10000
-  val nclusters = 3
+  val nclusters = 2
   val rng = Random(1L)
   val positions = synthesizeData(rng, nclusters, npoints)
 
-  val params = fitGibbs(rng, nclusters, 500, positions)
+  val params = fitGibbs(rng, nclusters, 5, positions)
   for (p in params) {
     println(p)
   }
@@ -374,7 +372,7 @@ fun tryClustering() {
 
 fun gammaHistogram() {
   val rng = Random(1L)
-  val dat = List(10000) { ln(sampleMarsagliaTsangGamma(rng, 5000.0)) }
+  val dat = List(10000) { sampleMarsagliaTsangGamma(rng, 5.0) }
 
   val p = histogram(dat)
   writePlot(p, "gamma.png")
@@ -383,4 +381,5 @@ fun gammaHistogram() {
 fun main() {
   // gaussianHistogram(100000)
   tryClustering()
+  // gammaHistogram()
 }
