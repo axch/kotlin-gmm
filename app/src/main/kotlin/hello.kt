@@ -30,7 +30,7 @@ fun logpGaussian(x: Double, params: Gaussian) : Double {
   return prob - 0.5 * ln(2 * PI)
 }
 
-class GaussianStat(var count: Int, var total: Double, var sumsq: Double) {
+data class GaussianStat(var count: Int, var total: Double, var sumsq: Double) {
   constructor() : this(0, 0.0, 0.0)
 
   fun incorporate(x: Double) {
@@ -109,7 +109,7 @@ fun sampleMarsagliaTsangGamma(rng: Random, alpha: Double) : Double {
 // To wit, the model is
 // prec ~ Gamma(alpha, beta)
 // mu ~ Normal(mean, precision=pseudocount * prec)
-class NormalGamma(
+data class NormalGamma(
     val mean: Double, val pseudocount: Double,
     val alpha: Double, val beta: Double) {
 
@@ -126,12 +126,17 @@ class NormalGamma(
 // I got these formulas off the Internet.  TODO: Unit test
 fun conjugateUpdateNormalGammaGaussian(
     prior: NormalGamma, stats: GaussianStat) : NormalGamma {
+  if (stats.count == 0) return prior
   val newAlpha = prior.alpha + stats.count / 2.0
   val discrepancy = stats.mean() - prior.mean
   val discrepancyAdj = discrepancy * discrepancy * stats.count * prior.pseudocount * 0.5 / (stats.count + prior.pseudocount)
   val newBeta = prior.beta + 0.5 * stats.discrepancySq() + discrepancyAdj
+  if (newBeta < 0) {
+    println("Got a negative beta " + newBeta)
+    println("From prior " + prior.beta + " discrepancy " + (0.5 * stats.discrepancySq()) + " adjustment " + discrepancyAdj)
+  }
   val newMean = (stats.total + prior.mean * prior.pseudocount) / (stats.count + prior.pseudocount)
-  return NormalGamma(prior.pseudocount + stats.count, newMean, newAlpha, newBeta)
+  return NormalGamma(newMean, prior.pseudocount + stats.count, newAlpha, newBeta)
 }
 
 fun logsumexp(xs: Collection<Double>) : Double {
@@ -260,15 +265,15 @@ fun sampleParametersGivenPositionsAssignment(
 }
 
 fun sampleOneParametersGivenStats(rng: Random, stats: GaussianStat) : Gaussian {
-  // TODO: This hardcodes the cluster stddev as 1.0, and hardcodes
-  // the cluster mean prior to 10x the unit normal, same as currently
-  // hardcoded in sampleParametersOne.
-  val meanPrior = Gaussian(0.0, 10.0)
-  val likelihoodStdDev = 1.0
-  val meanPosterior = conjugateUpdateGaussianGaussian(
-      meanPrior, likelihoodStdDev, stats)
-  val newMean = sampleGaussian(rng, meanPosterior)
-  return Gaussian(newMean, 1.0)
+  // TODO: This hardcodes a different cluster parameter prior than the
+  // one used to generate the data.
+  val prior = NormalGamma(0.0, 1.0, 1.0, 1.0)
+  val posterior = conjugateUpdateNormalGammaGaussian(prior, stats)
+  println("Given cluster stats of " + stats)
+  println("Got a cluster posterior of " + posterior)
+  val ans = posterior.sampleGaussian(rng)
+  println("And sampled the cluster " + ans)
+  return ans
 }
 
 // Plotting
@@ -336,6 +341,7 @@ fun fitGibbs(rng: Random, nclusters: Int, nsteps: Int, positions: DoubleArray)
   var params = sampleParametersGivenPositionsAssignment(
       rng, nclusters, positions, assignment)
   for (i in 1..nsteps) {
+    println("Starting sweep " + i)
     assignment = sampleAssignmentGivenPositionsParameters(rng, positions, params)
     params = sampleParametersGivenPositionsAssignment(
         rng, nclusters, positions, assignment)
@@ -352,7 +358,7 @@ fun main() {
   val rng = Random(1L)
   val positions = synthesizeData(rng, nclusters, npoints)
 
-  val params = fitGibbs(rng, nclusters, 2, positions)
+  val params = fitGibbs(rng, nclusters, 5, positions)
   for (p in params) {
     println(p)
   }
