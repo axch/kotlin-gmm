@@ -30,29 +30,30 @@ fun logpGaussian(x: Double, params: Gaussian) : Double {
   return prob - 0.5 * ln(2 * PI)
 }
 
-data class GaussianStat(var count: Int, var total: Double, var sumsq: Double) {
+data class GaussianStat(var count: Int, var total: Double, var discrep: Double) {
   constructor() : this(0, 0.0, 0.0)
 
   fun incorporate(x: Double) {
+    // discrepancy is always n times the variance.  This is Q in
+    // https://en.wikipedia.org/wiki/Standard_deviation#Rapid_calculation_methods
+    if (this.count > 0) {
+      val prev_mean = this.mean()
+      this.discrep += (x - prev_mean) * (x - prev_mean) * this.count / (this.count + 1)
+    }
     this.count += 1
     this.total += x
-    this.sumsq += x * x
   }
 
   fun mean() : Double {
     return this.total / this.count
   }
 
-  // This is sum (x_i - mean)^2, for any set of x_i consistent with
-  // these statistics.  By a standard argument, this can be computed
-  // from sum (x_i)^2 and the mean without having to store all the
-  // x_i.
-  fun discrepancySq() : Double {
-    // TODO: Yes, the numerics are bad here -- catastrophic
-    // cancellation of terms of size O(x^2).  Can be refactored later,
-    // by maintaining more elaborate formulas.
-    val mu = this.mean()
-    return this.sumsq - 2 * this.total * mu + mu * mu
+  fun variance() : Double {
+    return this.discrep / this.count
+  }
+
+  fun discrepancy() : Double {
+    return this.discrep
   }
 }
 
@@ -130,10 +131,10 @@ fun conjugateUpdateNormalGammaGaussian(
   val newAlpha = prior.alpha + stats.count / 2.0
   val discrepancy = stats.mean() - prior.mean
   val discrepancyAdj = discrepancy * discrepancy * stats.count * prior.pseudocount * 0.5 / (stats.count + prior.pseudocount)
-  val newBeta = prior.beta + 0.5 * stats.discrepancySq() + discrepancyAdj
+  val newBeta = prior.beta + 0.5 * stats.discrepancy() + discrepancyAdj
   if (newBeta < 0) {
     println("Got a negative beta " + newBeta)
-    println("From prior " + prior.beta + " discrepancy " + (0.5 * stats.discrepancySq()) + " adjustment " + discrepancyAdj)
+    println("From prior " + prior.beta + " discrepancy " + (0.5 * stats.discrepancy()) + " adjustment " + discrepancyAdj)
   }
   val newMean = (stats.total + prior.mean * prior.pseudocount) / (stats.count + prior.pseudocount)
   return NormalGamma(newMean, prior.pseudocount + stats.count, newAlpha, newBeta)
