@@ -31,6 +31,30 @@ fun logsumexp(xs: Collection<Double>) : Double {
   return ln(xs.map {exp(it - max)}.sum()) + max
 }
 
+// Draw a sample from a categorical distribution whose (un-normalized)
+// log weights are given by the argument.
+fun sampleCategoricalByLog(rng: Random, logps: Collection<Double>) : Int {
+  val norm = logsumexp(logps)
+  val ps = logps.map { exp(it - norm) }
+  return sampleCategoricalNormalized(rng, ps)
+}
+
+fun sampleCategoricalNormalized(rng: Random, ps: Collection<Double>) : Int {
+  var x = rng.nextDouble()
+  var ind = 0
+  for (p in ps) {
+    if (x <= p) {
+      return ind
+    } else {
+      ind += 1
+      x -= p
+    }
+  }
+  // Only happens if the normalization was wrong, e.g. due to
+  // numerical error.
+  return 0
+}
+
 // Iterating Doubles
 
 infix fun ClosedRange<Double>.step(step: Double): Iterable<Double> {
@@ -92,6 +116,29 @@ fun logpPositionGivenParametersIntegratingAssignment(
     position: Double, params: Array<Gaussian>) : Double {
   val pCluster = 1.0 / params.size  // Hardcoding equal cluster probs
   return logsumexp(params.map { ln(pCluster) + logpGaussian(position, it) })
+}
+
+fun sampleAssignmentGivenPositionsParameters(
+    rng: Random, positions: DoubleArray, parameters: Array<Gaussian>)
+    : IntArray {
+  // This is only independent across points if that's true of the
+  // cluster prior, so will need to change if we move to a Dirichlet
+  // process mixture.
+  return IntArray(positions.size) {
+    sampleOneAssignmentGivenPositionParameters(rng, positions[it], parameters)
+  }
+}
+
+fun sampleOneAssignmentGivenPositionParameters(
+    rng: Random, position: Double, parameters: Array<Gaussian>)
+    : Int {
+  // Could put the cluster assignment prior here, but while it's
+  // uniform it cancels out.
+  // TODO: Use a real DoubleArray here.  Can pull that off by adding
+  // the obvious mapDouble method to Array<T>, but in general will
+  // need a quadratic number of these.
+  val probs = parameters.map { logpGaussian(position, it) }
+  return sampleCategoricalByLog(rng, probs)
 }
 
 // Plotting
