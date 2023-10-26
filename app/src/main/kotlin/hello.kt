@@ -132,10 +132,6 @@ fun conjugateUpdateNormalGammaGaussian(
   val discrepancy = stats.mean() - prior.mean
   val discrepancyAdj = discrepancy * discrepancy * stats.count * prior.pseudocount * 0.5 / (stats.count + prior.pseudocount)
   val newBeta = prior.beta + 0.5 * stats.discrepancy() + discrepancyAdj
-  if (newBeta < 0) {
-    println("Got a negative beta " + newBeta)
-    println("From prior " + prior.beta + " discrepancy " + (0.5 * stats.discrepancy()) + " adjustment " + discrepancyAdj)
-  }
   val newMean = (stats.total + prior.mean * prior.pseudocount) / (stats.count + prior.pseudocount)
   return NormalGamma(newMean, prior.pseudocount + stats.count, newAlpha, newBeta)
 }
@@ -229,7 +225,8 @@ fun samplePositionGivenParameters(rng: Random, params: Gaussian) : Double {
 fun logpPositionGivenParametersIntegratingAssignment(
     position: Double, params: Array<Gaussian>) : Double {
   val pCluster = 1.0 / params.size  // Hardcoding equal cluster probs
-  return logsumexp(params.map { ln(pCluster) + logpGaussian(position, it) })
+  val logps = params.map { ln(pCluster) + logpGaussian(position, it) }
+  return logsumexp(logps)
 }
 
 fun sampleAssignmentGivenPositionsParameters(
@@ -270,10 +267,7 @@ fun sampleOneParametersGivenStats(rng: Random, stats: GaussianStat) : Gaussian {
   // one used to generate the data.
   val prior = NormalGamma(0.0, 1.0, 1.0, 1.0)
   val posterior = conjugateUpdateNormalGammaGaussian(prior, stats)
-  println("Given cluster stats of " + stats)
-  println("Got a cluster posterior of " + posterior)
   val ans = posterior.sampleGaussian(rng)
-  println("And sampled the cluster " + ans)
   return ans
 }
 
@@ -342,14 +336,13 @@ fun synthesizeData(rng: Random, nclusters: Int, npoints: Int) : DoubleArray {
 fun fitGibbs(rng: Random, nclusters: Int, nsteps: Int, positions: DoubleArray)
     : Array<Gaussian> {
   val npoints = positions.size
-  var assignment = sampleAssignment(rng, npoints, nclusters)
-  var params = sampleParametersGivenPositionsAssignment(
-      rng, nclusters, positions, assignment)
+  var params = sampleParameters(rng, nclusters)
+  var assignment = sampleAssignmentGivenPositionsParameters(rng, positions, params)
   for (i in 1..nsteps) {
     println("Starting sweep " + i)
-    assignment = sampleAssignmentGivenPositionsParameters(rng, positions, params)
     params = sampleParametersGivenPositionsAssignment(
         rng, nclusters, positions, assignment)
+    assignment = sampleAssignmentGivenPositionsParameters(rng, positions, params)
   }
   // TODO Should also return the assignment, and diagnostics of the
   // fitting process
@@ -362,7 +355,7 @@ fun tryClustering() {
   val rng = Random(1L)
   val positions = synthesizeData(rng, nclusters, npoints)
 
-  val params = fitGibbs(rng, nclusters, 5, positions)
+  val params = fitGibbs(rng, nclusters, 50, positions)
   for (p in params) {
     println(p)
   }
