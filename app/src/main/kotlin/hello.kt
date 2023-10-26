@@ -120,6 +120,12 @@ data class NormalGamma(
     val prec = stdGamma / this.beta  // beta is the rate, i.e., inverse scale
     val stddev = sqrt(1.0 / prec)
     val mean = sampleGaussian(rng, Gaussian(this.mean, stddev * 1.0/sqrt(this.pseudocount)))
+    if (stddev > 100) {
+      println("Sampling gaussian got")
+      println("stdGamma " + stdGamma)
+      println("prec " + prec)
+      println("stddev " + stddev)
+    }
     return Gaussian(mean, stddev)
   }
 }
@@ -299,7 +305,7 @@ fun histogram(dat: Collection<Double>, density: (Double) -> Double) : Plot {
   return p
 }
 
-fun writePlot(p: Plot, name: String) { 
+fun writePlot(p: Plot, name: String) {
   val image = PlotImageExport.buildImageFromRawSpecs(
       plotSpec = p.toSpec(),
       format = PlotImageExport.Format.PNG,
@@ -352,17 +358,29 @@ fun fitGibbs(rng: Random, nclusters: Int, nsteps: Int, positions: DoubleArray)
   return params
 }
 
-fun main() {
-  // gaussianHistogram(100000)
+fun tryClustering() {
   val npoints = 10000
   val nclusters = 3
   val rng = Random(1L)
   val positions = synthesizeData(rng, nclusters, npoints)
 
-  val params = fitGibbs(rng, nclusters, 5, positions)
+  val params = fitGibbs(rng, nclusters, 500, positions)
   for (p in params) {
     println(p)
   }
   val p = histogram(positions.toList()) { exp(logpPositionGivenParametersIntegratingAssignment(it, params)) }
   writePlot(p, "clustering-fit.png")
+}
+
+fun gammaHistogram() {
+  val rng = Random(1L)
+  val dat = List(10000) { ln(sampleMarsagliaTsangGamma(rng, 5000.0)) }
+
+  val p = histogram(dat)
+  writePlot(p, "gamma.png")
+}
+
+fun main() {
+  // gaussianHistogram(100000)
+  tryClustering()
 }
