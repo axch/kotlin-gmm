@@ -42,6 +42,18 @@ class GaussianStat(var count: Int, var total: Double, var sumsq: Double) {
   fun mean() : Double {
     return this.total / this.count
   }
+
+  // This is sum (x_i - mean)^2, for any set of x_i consistent with
+  // these statistics.  By a standard argument, this can be computed
+  // from sum (x_i)^2 and the mean without having to store all the
+  // x_i.
+  fun discrepancySq() : Double {
+    // TODO: Yes, the numerics are bad here -- catastrophic
+    // cancellation of terms of size O(x^2).  Can be refactored later,
+    // by maintaining more elaborate formulas.
+    val mu = this.mean()
+    return this.sumsq - 2 * this.total * mu + mu * mu
+  }
 }
 
 // This function solves the Gaussian-Gaussian model with known
@@ -61,6 +73,65 @@ fun conjugateUpdateGaussianGaussian(
   val mean = (priorPrec * prior.mean + dataPrec * stats.mean()) / (priorPrec + dataPrec)
   val prec = priorPrec + dataPrec
   return Gaussian(mean,  sqrt(1.0 / prec))
+}
+
+// Transcribed from Apache commons-rng, since I don't want to bother
+// reading the original paper again.  Citation: Marsaglia and Tsang, A
+// Simple Method for Generating Gamma Variables. ACM Transactions on
+// Mathematical Software, Volume 26 Issue 3, September, 2000.
+// The parameterization is in terms of the shape alpha, assuming
+// constant scale.
+fun sampleMarsagliaTsangGamma(rng: Random, alpha: Double) : Double {
+  val dOptim = alpha - 1.0 / 3
+  val cOptim = 1.0 / 3 * sqrt(dOptim)
+  while (true) {
+    val unitG = rng.nextGaussian()
+    val oPcTx = 1 + cOptim * unitG
+    val v = oPcTx * oPcTx * oPcTx
+    if (v <= 0) continue
+    val x2 = unitG * unitG
+    val u = rng.nextDouble()
+    // Squeeze
+    if (u < 1 - 0.0331 * x2 * x2) {
+      return dOptim * v
+    }
+    if (ln(u) < 0.5 * x2 + dOptim * (1 - v + ln(v))) {
+      return dOptim * v
+    }
+  }
+}
+
+// This represents an instance of the normal-gamma distribution.  This
+// distribution is a particular family of non-independent two-valued
+// distribution that is useful because it provides a conjugate prior
+// to a normal distribution with unknown mean and precision.
+//
+// To wit, the model is
+// prec ~ Gamma(alpha, beta)
+// mu ~ Normal(mean, precision=pseudocount * prec)
+class NormalGamma(
+    val mean: Double, val pseudocount: Double,
+    val alpha: Double, val beta: Double) {
+
+  // Draw (the parameters of) a Gaussian from this distribution
+  fun sampleGaussian(rng: Random) : Gaussian {
+    val stdGamma = sampleMarsagliaTsangGamma(rng, this.alpha)
+    val prec = stdGamma / this.beta  // beta is the rate, i.e., inverse scale
+    val stddev = sqrt(1.0 / prec)
+    val mean = sampleGaussian(rng, Gaussian(this.mean, stddev * 1.0/sqrt(this.pseudocount)))
+    return Gaussian(mean, stddev)
+  }
+}
+
+// I got these formulas off the Internet.  TODO: Unit test
+fun conjugateUpdateNormalGammaGaussian(
+    prior: NormalGamma, stats: GaussianStat) : NormalGamma {
+  val newAlpha = prior.alpha + stats.count / 2.0
+  val discrepancy = stats.mean() - prior.mean
+  val discrepancyAdj = discrepancy * discrepancy * stats.count * prior.pseudocount * 0.5 / (stats.count + prior.pseudocount)
+  val newBeta = prior.beta + 0.5 * stats.discrepancySq() + discrepancyAdj
+  val newMean = (stats.total + prior.mean * prior.pseudocount) / (stats.count + prior.pseudocount)
+  return NormalGamma(prior.pseudocount + stats.count, newMean, newAlpha, newBeta)
 }
 
 fun logsumexp(xs: Collection<Double>) : Double {
