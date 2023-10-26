@@ -10,6 +10,8 @@ import org.jetbrains.letsPlot.core.plot.export.PlotImageExport
 import org.jetbrains.letsPlot.intern.Plot
 import org.jetbrains.letsPlot.intern.toSpec
 
+// Basic stats
+
 data class Gaussian(val mean: Double, val stddev: Double)
 
 fun gaussianDensity(x: Double) : Double {
@@ -29,6 +31,8 @@ fun logsumexp(xs: Collection<Double>) : Double {
   return ln(xs.map {exp(it - max)}.sum()) + max
 }
 
+// Iterating Doubles
+
 infix fun ClosedRange<Double>.step(step: Double): Iterable<Double> {
   require(start.isFinite())
   require(endInclusive.isFinite())
@@ -40,6 +44,8 @@ infix fun ClosedRange<Double>.step(step: Double): Iterable<Double> {
   }
   return sequence.asIterable()
 }
+
+// GMM functions
 
 fun sampleAssignment(rng: Random, npoints: Int, nclusters: Int) : IntArray {
   // There will be room to add a prior on the peakiness of the
@@ -88,13 +94,7 @@ fun logpPositionGivenParametersIntegratingAssignment(
   return logsumexp(params.map { ln(pCluster) + logpGaussian(position, it) })
 }
 
-fun gaussianHistogram(sz: Int) {
-  val rng = Random(1L)
-  val dat = List(sz) { rng.nextGaussian() }
-
-  val p = histogram(dat, ::gaussianDensity)
-  writePlot(p, "gaussian.png")
-}
+// Plotting
 
 fun histogram(dat: Collection<Double>) : Plot {
   val datMap = mapOf("value" to dat)
@@ -128,6 +128,16 @@ fun writePlot(p: Plot, name: String) {
   file.createNewFile()
   file.writeBytes(image.bytes)
   println("Gaussian histogram drawn in " + file.getCanonicalPath())
+}
+
+// Driving
+
+fun gaussianHistogram(sz: Int) {
+  val rng = Random(1L)
+  val dat = List(sz) { rng.nextGaussian() }
+
+  val p = histogram(dat, ::gaussianDensity)
+  writePlot(p, "gaussian.png")
 }
 
 fun main() {
