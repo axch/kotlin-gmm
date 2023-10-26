@@ -14,7 +14,11 @@ import org.jetbrains.letsPlot.intern.toSpec
 
 data class Gaussian(val mean: Double, val stddev: Double)
 
-fun gaussianDensity(x: Double) : Double {
+fun sampleGaussian(rng: Random, dist: Gaussian) : Double {
+  return dist.mean + rng.nextGaussian() * dist.stddev
+}
+
+fun unitGaussianDensity(x: Double) : Double {
   return exp(- x * x / 2) / sqrt(2 * PI)
 }
 
@@ -24,6 +28,38 @@ fun logpGaussian(x: Double, params: Gaussian) : Double {
   val z = (x - mean) / stddev
   val prob = - z * z / 2 - ln(stddev)
   return prob - 0.5 * ln(2 * PI)
+}
+
+class GaussianStat(var count: Int, var total: Double, var sumsq: Double) {
+  constructor() : this(0, 0.0, 0.0)
+
+  fun incorporate(x: Double) {
+    this.count += 1
+    this.total += x
+    this.sumsq += x * x
+  }
+
+  fun mean() : Double {
+    return this.total / this.count
+  }
+}
+
+// This function solves the Gaussian-Gaussian model with known
+// observation standard deviation.
+//
+// The model posits an unknown mean with a Gaussian prior, and an IID
+// Gaussian likelihood with that mean and a given variance.
+//
+// Given the prior, the standard deviation, and a GaussianStat object
+// summarizing the observed data, return the posterior on the mean
+// (which is also a Gaussian).
+fun conjugateUpdateGaussianGaussian(
+    prior: Gaussian, likelihoodStdDev: Double, stats: GaussianStat) : Gaussian {
+  val priorPrec = 1.0 / (prior.stddev * prior.stddev)
+  val dataPrec = stats.count / (likelihoodStdDev * likelihoodStdDev)
+  val mean = priorPrec * prior.mean + dataPrec * stats.mean()
+  val prec = priorPrec + dataPrec
+  return Gaussian(mean,  sqrt(1.0 / prec))
 }
 
 fun logsumexp(xs: Collection<Double>) : Double {
@@ -141,6 +177,28 @@ fun sampleOneAssignmentGivenPositionParameters(
   return sampleCategoricalByLog(rng, probs)
 }
 
+fun sampleParametersGivenPositionsAssignment(
+    rng: Random, nclusters: Int, positions: DoubleArray, assignment: IntArray)
+    : Array<Gaussian> {
+  val stats = Array (nclusters) { GaussianStat() }
+  for (i in 0..positions.size) {
+    stats[assignment[i]].incorporate(positions[i])
+  }
+  return Array(stats.size) { sampleOneParametersGivenStats(rng, stats[it]) }
+}
+
+fun sampleOneParametersGivenStats(rng: Random, stats: GaussianStat) : Gaussian {
+  // TODO: This hardcodes the cluster stddev as 1.0, and hardcodes
+  // the cluster mean prior to 10x the unit normal, same as currently
+  // hardcoded in sampleParametersOne.
+  val meanPrior = Gaussian(0.0, 10.0)
+  val likelihoodStdDev = 1.0
+  val meanPosterior = conjugateUpdateGaussianGaussian(
+      meanPrior, likelihoodStdDev, stats)
+  val newMean = sampleGaussian(rng, meanPosterior)
+  return Gaussian(newMean, 1.0)
+}
+
 // Plotting
 
 fun histogram(dat: Collection<Double>) : Plot {
@@ -183,7 +241,7 @@ fun gaussianHistogram(sz: Int) {
   val rng = Random(1L)
   val dat = List(sz) { rng.nextGaussian() }
 
-  val p = histogram(dat, ::gaussianDensity)
+  val p = histogram(dat, ::unitGaussianDensity)
   writePlot(p, "gaussian.png")
 }
 
