@@ -55,9 +55,10 @@ class GaussianStat(var count: Int, var total: Double, var sumsq: Double) {
 // (which is also a Gaussian).
 fun conjugateUpdateGaussianGaussian(
     prior: Gaussian, likelihoodStdDev: Double, stats: GaussianStat) : Gaussian {
+  if (stats.count == 0) { return prior }
   val priorPrec = 1.0 / (prior.stddev * prior.stddev)
   val dataPrec = stats.count / (likelihoodStdDev * likelihoodStdDev)
-  val mean = priorPrec * prior.mean + dataPrec * stats.mean()
+  val mean = (priorPrec * prior.mean + dataPrec * stats.mean()) / (priorPrec + dataPrec)
   val prec = priorPrec + dataPrec
   return Gaussian(mean,  sqrt(1.0 / prec))
 }
@@ -181,7 +182,7 @@ fun sampleParametersGivenPositionsAssignment(
     rng: Random, nclusters: Int, positions: DoubleArray, assignment: IntArray)
     : Array<Gaussian> {
   val stats = Array (nclusters) { GaussianStat() }
-  for (i in 0..positions.size) {
+  for (i in 0..positions.size-1) {
     stats[assignment[i]].incorporate(positions[i])
   }
   return Array(stats.size) { sampleOneParametersGivenStats(rng, stats[it]) }
@@ -245,18 +246,45 @@ fun gaussianHistogram(sz: Int) {
   writePlot(p, "gaussian.png")
 }
 
-fun main() {
-  // gaussianHistogram(100000)
-  val npoints = 1000000
-  val nclusters = 4
-  val rng = Random(1L)
+fun synthesizeData(rng: Random, nclusters: Int, npoints: Int) : DoubleArray {
   val params = sampleParameters(rng, nclusters)
+  println("Generating data with true clusters")
   for (p in params) {
     println(p)
   }
   val assignment = sampleAssignment(rng, npoints, nclusters)
   val positions = samplePositionsGivenAssignmentParameters(rng, assignment, params)
   println(positions.toList().max())
+  return positions
+}
+
+fun fitGibbs(rng: Random, nclusters: Int, nsteps: Int, positions: DoubleArray)
+    : Array<Gaussian> {
+  val npoints = positions.size
+  var assignment = sampleAssignment(rng, npoints, nclusters)
+  var params = sampleParametersGivenPositionsAssignment(
+      rng, nclusters, positions, assignment)
+  for (i in 1..nsteps) {
+    assignment = sampleAssignmentGivenPositionsParameters(rng, positions, params)
+    params = sampleParametersGivenPositionsAssignment(
+        rng, nclusters, positions, assignment)
+  }
+  // TODO Should also return the assignment, and diagnostics of the
+  // fitting process
+  return params
+}
+
+fun main() {
+  // gaussianHistogram(100000)
+  val npoints = 10000
+  val nclusters = 3
+  val rng = Random(1L)
+  val positions = synthesizeData(rng, nclusters, npoints)
+
+  val params = fitGibbs(rng, nclusters, 2, positions)
+  for (p in params) {
+    println(p)
+  }
   val p = histogram(positions.toList()) { exp(logpPositionGivenParametersIntegratingAssignment(it, params)) }
-  writePlot(p, "two-gaussians.png")
+  writePlot(p, "clustering-fit.png")
 }
